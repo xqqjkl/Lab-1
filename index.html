@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Лабораторная работа 1 — Цветовые модели</title>
+<style>
+  :root{
+    --bg:#f4f6fb; --card:#ffffff; --line:#e3e8f0; --ink:#1f2937;
+    --muted:#6b7280; --accent:#2f6df6; --warn:#b45309; --warnbg:#fef3c7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",system-ui,"Microsoft YaHei",Arial,sans-serif;
+       background:var(--bg);color:var(--ink);padding:24px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:18px}
+  .toolbar{display:flex;flex-wrap:wrap;gap:14px;align-items:center;
+           background:var(--card);border:1px solid var(--line);border-radius:12px;
+           padding:14px 16px;margin-bottom:18px}
+  .toolbar label{font-size:13px;color:var(--muted)}
+  select{font-size:14px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:#fff}
+  .swatch-wrap{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .big-swatch{width:64px;height:40px;border-radius:8px;border:1px solid var(--line)}
+  input[type=color]{width:48px;height:40px;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .card h2{font-size:16px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+  .tag{font-size:11px;color:#fff;background:var(--accent);border-radius:6px;padding:2px 7px}
+  .row{margin-bottom:12px}
+  .row .lab{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px}
+  .row .lab input.num{width:74px;font-size:13px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;text-align:right}
+  input[type=range]{width:100%}
+  .swatch{height:34px;border-radius:8px;border:1px solid var(--line);margin-top:8px}
+  .warn{background:var(--warnbg);color:var(--warn);border:1px solid #fcd34d;
+        border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:14px;display:none}
+  footer{color:var(--muted);font-size:12px;margin-top:22px}
+</style>
+</head>
+<body>
+  <h1>Лабораторная работа 1 · Цветовые модели</h1>
+  <div class="sub">Интерактивный конвертер: RGB · CMYK · HSV · HLS · XYZ · LAB — выберите вариант, меняйте цвет любым способом, остальные модели пересчитываются автоматически.</div>
+
+  <div class="toolbar">
+    <label>Вариант:
+      <select id="variant"></select>
+    </label>
+    <label>Модель A <select id="m0"></select></label>
+    <label>Модель B <select id="m1"></select></label>
+    <label>Модель C <select id="m2"></select></label>
+    <div class="swatch-wrap">
+      <span class="sub">Палитра / выбор цвета:</span>
+      <input type="color" id="picker" value="#3a7bd5">
+      <div class="big-swatch" id="bigSwatch"></div>
+    </div>
+  </div>
+
+  <div class="warn" id="warn"></div>
+  <div class="grid" id="grid"></div>
+
+  <footer>Ввод числом + ползунок + палитра. Некорректные значения обрезаются с предупреждением.</footer>
+
+<script>
+// ---------- 颜色数学（以 RGB 0..1 为内部唯一真值） ----------
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+
+// sRGB gamma
+function lin(c){return c<=0.04045?c/12.92:Math.pow((c+0.055)/1.055,2.4);}
+function gam(c){return c<=0.0031308?c*12.92:1.055*Math.pow(c,1/2.4)-0.055;}
+
+// RGB(0..1) -> HSV
+function rgb2hsv(r,g,b){
+  const mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn;let h=0;
+  if(d){ if(mx===r)h=((g-b)/d)%6; else if(mx===g)h=(b-r)/d+2; else h=(r-g)/d+4; h*=60; if(h<0)h+=360;}
+  const s=mx? d/mx:0; return [h,s*100,mx*100];
+}
+function hsv2rgb(h,s,v){
+  s/=100;v/=100;h=((h%360)+360)%360;
+  const c=v*s,x=c*(1-Math.abs((h/60)%2-1)),m=v-c;let r,g,b;
+  if(h<60){r=c;g=x;b=0}else if(h<120){r=x;g=c;b=0}else if(h<180){r=0;g=c;b=x}
+  else if(h<240){r=0;g=x;b=c}else if(h<300){r=x;g=0;b=c}else{r=c;g=0;b=x}
+  return [r+m,g+m,b+m];
+}
+// RGB -> HLS(HSL)
+function rgb2hls(r,g,b){
+  const mx=Math.max(r,g,b),mn=Math.min(r,g,b),l=(mx+mn)/2,d=mx-mn;let h=0,s=0;
+  if(d){ if(mx===r)h=((g-b)/d)%6; else if(mx===g)h=(b-r)/d+2; else h=(r-g)/d+4; h*=60; if(h<0)h+=360;
+    s=d/(1-Math.abs(2*l-1)); }
+  return [h,s*100,l*100];
+}
+function hls2rgb(h,s,l){
+  s/=100;l/=100;h=((h%360)+360)%360;
+  const c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs((h/60)%2-1)),m=l-c/2;let r,g,b;
+  if(h<60){r=c;g=x;b=0}else if(h<120){r=x;g=c;b=0}else if(h<180){r=0;g=c;b=x}
+  else if(h<240){r=0;g=x;b=c}else if(h<300){r=x;g=0;b=c}else{r=c;g=0;b=x}
+  return [r+m,g+m,b+m];
+}
+// RGB -> CMYK
+function rgb2cmyk(r,g,b){
+  const k=1-Math.max(r,g,b);let c,m,y;
+  if(k>=1){c=m=y=0}else{c=(1-r-k)/(1-k);m=(1-g-k)/(1-k);y=(1-b-k)/(1-k);}
+  return [c*100,m*100,y*100,k*100];
+}
+function cmyk2rgb(c,m,y,k){c/=100;m/=100;y/=100;k/=100;
+  return [(1-c)*(1-k),(1-m)*(1-k),(1-y)*(1-k)];}
+// RGB(0..1) -> XYZ(0..100, D65)
+function rgb2xyz(r,g,b){const R=lin(r),G=lin(g),B=lin(b);
+  return [ (R*0.4124+G*0.3576+B*0.1805)*100,
+           (R*0.2126+G*0.7152+B*0.0722)*100,
+           (R*0.0193+G*0.1192+B*0.9505)*100 ];}
+function xyz2rgb(X,Y,Z){X/=100;Y/=100;Z/=100;
+  const R= X*3.2406+Y*-1.5372+Z*-0.4986,
+        G= X*-0.9689+Y*1.8758+Z*0.0415,
+        B= X*0.0557+Y*-0.2040+Z*1.0570;
+  return [gam(R),gam(G),gam(B)];}
+// XYZ(0..100) <-> LAB (D65 white)
+const Xn=95.047,Yn=100,Zn=108.883;
+function f(t){return t>0.008856?Math.cbrt(t):(7.787*t+16/116);}
+function finv(t){return t>0.206893?t*t*t:(t-16/116)/7.787;}
+function xyz2lab(X,Y,Z){const fx=f(X/Xn),fy=f(Y/Yn),fz=f(Z/Zn);
+  return [116*fy-16,500*(fx-fy),200*(fy-fz)];}
+function lab2xyz(L,a,b){const fy=(L+16)/116,fx=fy+a/500,fz=fy-b/200;
+  return [Xn*finv(fx),Yn*finv(fy),Zn*finv(fz)];}
+
+// ---------- 模型定义：display(rgb)->vals[], edit(vals)->{rgb,out} ----------
+const MODELS={
+  RGB:{name:"RGB",units:["R","G","B"],min:[0,0,0],max:[255,255,255],dec:0,
+    disp:r=>[r[0]*255,r[1]*255,r[2]*255],
+    edit:v=>({rgb:[clamp(v[0],0,255)/255,clamp(v[1],0,255)/255,clamp(v[2],0,255)/255],out:false})},
+  HSV:{name:"HSV",units:["H","S","V"],min:[0,0,0],max:[360,100,100],dec:[0,1,1],
+    disp:r=>rgb2hsv(...r),
+    edit:v=>({rgb:hsv2rgb(clamp(v[0],0,360),clamp(v[1],0,100),clamp(v[2],0,100)),out:false})},
+  HLS:{name:"HLS",units:["H","L","S"],min:[0,0,0],max:[360,100,100],dec:[0,1,1],
+    disp:r=>rgb2hls(...r),
+    edit:v=>({rgb:hls2rgb(clamp(v[0],0,360),clamp(v[1],0,100),clamp(v[2],0,100)),out:false})},
+  CMYK:{name:"CMYK",units:["C","M","Y","K"],min:[0,0,0,0],max:[100,100,100,100],dec:1,
+    disp:r=>rgb2cmyk(...r),
+    edit:v=>({rgb:cmyk2rgb(clamp(v[0],0,100),clamp(v[1],0,100),clamp(v[2],0,100),clamp(v[3],0,100)),out:false})},
+  XYZ:{name:"XYZ",units:["X","Y","Z"],min:[0,0,0],max:[95.047,100,108.883],dec:2,
+    disp:r=>rgb2xyz(...r),
+    edit:v=>{const rgb=xyz2rgb(clamp(v[0],0,95.047),clamp(v[1],0,100),clamp(v[2],0,108.883));
+      const out=rgb.some(c=>c<-0.0001||c>1.0001);
+      return {rgb:[clamp(rgb[0],0,1),clamp(rgb[1],0,1),clamp(rgb[2],0,1)],out};}},
+  LAB:{name:"LAB",units:["L","a","b"],min:[0,-128,-128],max:[100,127,127],dec:1,
+    disp:r=>xyz2lab(...rgb2xyz(...r)),
+    edit:v=>{const rgb=xyz2rgb(...lab2xyz(clamp(v[0],0,100),clamp(v[1],-128,127),clamp(v[2],-128,127)));
+      const out=rgb.some(c=>c<-0.0001||c>1.0001);
+      return {rgb:[clamp(rgb[0],0,1),clamp(rgb[1],0,1),clamp(rgb[2],0,1)],out};}}
+};
+
+// ---------- 变体表（来自作业要求） ----------
+const VARIANTS=[
+ ["1","RGB","LAB","CMYK"],["2","RGB","CMYK","HLS"],["3","RGB","XYZ","LAB"],
+ ["4","RGB","HSV","LAB"],["5","CMYK","LAB","HSV"],["6","CMYK","RGB","HLS"],
+ ["7","CMYK","RGB","HSV"],["8","RGB","XYZ","HSV"],["9","HSV","XYZ","LAB"],
+ ["10","CMYK","LAB","RGB"],["11","XYZ","LAB","HLS"],["12","RGB","XYZ","HLS"],
+ ["13","RGB","XYZ","CMYK"],["14","CMYK","LAB","XYZ"],["15","RGB","CMYK","HSV"],
+ ["16","CMYK","HLS","XYZ"],["17","RGB","HLS","LAB"],["18","CMYK","XYZ","RGB"]
+];
+
+let state=[0.22,0.45,0.80]; // RGB 0..1
+let active=["RGB","HSV","CMYK"];
+
+// ---------- 渲染 ----------
+function fmt(v,d){return Number(v).toFixed(typeof d==="number"?d:(d||2));}
+const grid=document.getElementById("grid");
+function buildCards(){
+  grid.innerHTML="";
+  active.forEach((key,idx)=>{
+    const M=MODELS[key];const card=document.createElement("div");card.className="card";
+    let html=`<h2>${M.name}<span class="tag">Модель ${"ABC"[idx]}</span></h2>`;
+    for(let i=0;i<M.units.length;i++){
+      const dec=typeof M.dec==="number"?M.dec:M.dec[i];
+      html+=`<div class="row">
+        <div class="lab"><span>${M.units[i]}</span>
+          <input class="num" data-m="${idx}" data-i="${i}" type="number"
+                 min="${M.min[i]}" max="${M.max[i]}" step="${dec?0.1:1}"></div>
+        <input type="range" data-m="${idx}" data-i="${i}"
+               min="${M.min[i]}" max="${M.max[i]}" step="${dec?0.1:1}">
+      </div>`;
+    }
+    html+=`<div class="swatch" data-sw="${idx}"></div>`;
+    card.innerHTML=html;grid.appendChild(card);
+  });
+  grid.querySelectorAll("input[type=range]").forEach(el=>{
+    el.addEventListener("input",e=>onEdit(+e.target.dataset.m,+e.target.dataset.i,parseFloat(e.target.value)));
+  });
+  grid.querySelectorAll("input.num").forEach(el=>{
+    el.addEventListener("change",e=>onEdit(+e.target.dataset.m,+e.target.dataset.i,parseFloat(e.target.value)));
+  });
+}
+function onEdit(m,i,val){
+  const M=MODELS[active[m]];
+  const cur=M.disp(state);cur[i]=isNaN(val)?cur[i]:val;
+  const res=M.edit(cur);
+  state=res.rgb;
+  const w=document.getElementById("warn");
+  if(res.out){w.style.display="block";
+    w.textContent="⚠ Предупреждение: цвет выходит за пределы модели — значения обрезаются/округляются.";}
+  else w.style.display="none";
+  render();
+}
+function render(){
+  active.forEach((key,m)=>{
+    const M=MODELS[key];const vals=M.disp(state);
+    const card=grid.children[m];
+    const ranges=card.querySelectorAll("input[type=range]");
+    const nums=card.querySelectorAll("input.num");
+    for(let i=0;i<vals.length;i++){
+      const dec=typeof M.dec==="number"?M.dec:M.dec[i];
+      ranges[i].value=vals[i];nums[i].value=fmt(vals[i],dec);
+    }
+    card.querySelector(".swatch").style.background=rgbCss();
+  });
+  document.getElementById("bigSwatch").style.background=rgbCss();
+  document.getElementById("picker").value=rgbHex();
+}
+function rgbCss(){return `rgb(${Math.round(state[0]*255)},${Math.round(state[1]*255)},${Math.round(state[2]*255)})`;}
+function rgbHex(){const h=x=>Math.round(x*255).toString(16).padStart(2,"0");
+  return "#"+h(state[0])+h(state[1])+h(state[2]);}
+
+// ---------- 控件 ----------
+const vsel=document.getElementById("variant");
+vsel.innerHTML='<option value="">— выбрать вариант —</option>'+
+  VARIANTS.map(v=>`<option value="${v[0]}">Вариант ${v[0]}: ${v[1]} ↔ ${v[2]} ↔ ${v[3]}</option>`).join("");
+vsel.addEventListener("change",e=>{const v=VARIANTS.find(x=>x[0]===e.target.value);
+  if(v){active=[v[1],v[2],v[3]];syncModelSelectors();buildCards();render();}});
+function fillModelSel(sel){sel.innerHTML=Object.keys(MODELS).map(k=>`<option value="${k}">${k}</option>`).join("");}
+["m0","m1","m2"].forEach(id=>fillModelSel(document.getElementById(id)));
+function syncModelSelectors(){document.getElementById("m0").value=active[0];
+  document.getElementById("m1").value=active[1];document.getElementById("m2").value=active[2];}
+["m0","m1","m2"].forEach((id,idx)=>document.getElementById(id).addEventListener("change",e=>{
+  active[idx]=e.target.value;buildCards();render();}));
+document.getElementById("picker").addEventListener("input",e=>{
+  const v=e.target.value;state=[parseInt(v.substr(1,2),16)/255,parseInt(v.substr(3,2),16)/255,parseInt(v.substr(5,2),16)/255];
+  document.getElementById("warn").style.display="none";render();});
+
+syncModelSelectors();buildCards();render();
+</script>
+</body>
+</html>
